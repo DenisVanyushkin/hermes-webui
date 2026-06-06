@@ -88,6 +88,29 @@ def _trusted_agent_dir(agent_dir: Path) -> bool:
         return False
 
 
+def _hindsight_enabled() -> bool:
+    return os.environ.get('ENABLE_HINDSIGHT', '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def _hindsight_installed_version() -> str | None:
+    try:
+        import importlib.metadata as metadata
+
+        return metadata.version('hindsight-client')
+    except Exception:
+        return None
+
+
+def _agent_install_source_mentions_hindsight(agent_dir: Path) -> bool:
+    for candidate in (agent_dir / 'requirements.txt', agent_dir / 'pyproject.toml'):
+        try:
+            if candidate.exists() and 'hindsight-client' in candidate.read_text(encoding='utf-8'):
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def auto_install_agent_deps() -> bool:
     enabled = os.environ.get('HERMES_WEBUI_AUTO_INSTALL', '').strip().lower() in ('1', 'true', 'yes')
     if not enabled:
@@ -99,6 +122,9 @@ def auto_install_agent_deps() -> bool:
         return False
     if not _trusted_agent_dir(agent_dir):
         print('[!!] Auto-install skipped: agent directory failed trust check (check ownership/permissions).', flush=True)
+        return False
+    if not _hindsight_enabled() and _agent_install_source_mentions_hindsight(agent_dir):
+        print('[!!] Hindsight is disabled and the agent install source mentions hindsight-client.', flush=True)
         return False
     req_file = agent_dir / 'requirements.txt'
     pyproject = agent_dir / 'pyproject.toml'
@@ -117,6 +143,13 @@ def auto_install_agent_deps() -> bool:
             print(f'[!!] pip install failed (exit {result.returncode}):', flush=True)
             for line in (result.stderr or '').splitlines()[-10:]:
                 print(f'     {line}', flush=True)
+            return False
+        installed_version = _hindsight_installed_version()
+        if not _hindsight_enabled() and installed_version is not None:
+            print(f'[!!] hindsight-client unexpectedly installed ({installed_version}) while ENABLE_HINDSIGHT=false.', flush=True)
+            return False
+        if _hindsight_enabled() and installed_version is not None and installed_version != '0.7.2':
+            print(f'[!!] ENABLE_HINDSIGHT=true requires hindsight-client==0.7.2, found {installed_version}.', flush=True)
             return False
         print('[ok] pip install completed.', flush=True)
         return True

@@ -1,32 +1,54 @@
-"""Regression tests for #926 Hindsight dependency in Docker WebUI venv."""
-import pathlib
+"""Regression tests for the Hindsight disabled-by-default policy."""
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+from api.startup import auto_install_agent_deps
 
 
-REPO_ROOT = pathlib.Path(__file__).parent.parent
+REPO_ROOT = Path(__file__).parent.parent
 INIT_SH = (REPO_ROOT / "docker_init.bash").read_text(encoding="utf-8")
-REQUIREMENTS_TXT = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
 
 
-def test_926_docker_init_installs_hindsight_distribution():
-    """Docker init must install the PyPI distribution named hindsight-client."""
-    assert "uv pip show hindsight-client" in INIT_SH
-    assert '"hindsight-client>=0.4.22"' in INIT_SH
-    assert 'uv pip install "${_hindsight_client_requirement}"' in INIT_SH
+def test_docker_init_has_explicit_hindsight_gate():
+    assert "assert_hindsight_client_policy" in INIT_SH
+    assert "ENABLE_HINDSIGHT" in INIT_SH
+    assert "hindsight-client==0.7.2" in INIT_SH
+    assert "hindsight-client>=0.4.22" not in INIT_SH
+    assert "ensure_hindsight_client_docker_dependency" not in INIT_SH
 
 
-def test_926_hindsight_install_runs_after_fast_restart_guard():
-    """Existing Docker venvs with .deps_installed must still get hindsight-client."""
-    deps_guard_pos = INIT_SH.find("if [ -f /app/venv/.deps_installed ]; then")
-    assert deps_guard_pos != -1, ".deps_installed fast-restart guard not found"
+def test_startup_blocks_hindsight_in_default_mode(tmp_path, capsys):
+    agent_dir = tmp_path / "hermes-agent"
+    agent_dir.mkdir()
+    (agent_dir / "requirements.txt").write_text("hindsight-client==0.7.2\n", encoding="utf-8")
+    env = {
+        "HERMES_WEBUI_AGENT_DIR": str(agent_dir),
+        "HERMES_WEBUI_AUTO_INSTALL": "1",
+        "ENABLE_HINDSIGHT": "false",
+    }
+    with patch.dict("os.environ", env, clear=False):
+        with patch("api.startup._trusted_agent_dir", return_value=True):
+            with patch("subprocess.run") as mock_run:
+                assert auto_install_agent_deps() is False
+                assert not mock_run.called
+    out = capsys.readouterr().out.lower()
+    assert "hindsight" in out and "disabled" in out
 
-    expected_sequence = "\nfi\n\nensure_hindsight_client_docker_dependency\n"
-    call_after_guard_pos = INIT_SH.find(expected_sequence, deps_guard_pos)
-    assert call_after_guard_pos != -1, (
-        "hindsight-client install check must run outside the .deps_installed guard "
-        "so old Docker venvs self-heal on fast restart"
-    )
 
-
-def test_926_hindsight_dependency_stays_docker_specific():
-    """Local non-Docker bootstrap should not install optional memory clients."""
-    assert "hindsight-client" not in REQUIREMENTS_TXT
+def test_startup_allows_non_hindsight_agent_sources_in_default_mode(tmp_path):
+    agent_dir = tmp_path / "hermes-agent"
+    agent_dir.mkdir()
+    (agent_dir / "requirements.txt").write_text("pyyaml\n", encoding="utf-8")
+    env = {
+        "HERMES_WEBUI_AGENT_DIR": str(agent_dir),
+        "HERMES_WEBUI_AUTO_INSTALL": "1",
+        "ENABLE_HINDSIGHT": "false",
+    }
+    with patch.dict("os.environ", env, clear=False):
+        with patch("api.startup._trusted_agent_dir", return_value=True):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0, stderr="")
+                assert auto_install_agent_deps() is True
+                args = mock_run.call_args[0][0]
+                assert "-r" in args
+                assert str(agent_dir / "requirements.txt") in args

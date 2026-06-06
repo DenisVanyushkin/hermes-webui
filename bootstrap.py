@@ -71,6 +71,27 @@ def _load_repo_dotenv() -> None:
 # values from .env even when bootstrap.py is invoked directly (not via start.sh).
 _load_repo_dotenv()
 
+
+def _hindsight_enabled() -> bool:
+    return os.environ.get('ENABLE_HINDSIGHT', '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def _hindsight_installed_version() -> str | None:
+    try:
+        import importlib.metadata as metadata
+
+        return metadata.version('hindsight-client')
+    except Exception:
+        return None
+
+
+def _file_mentions_hindsight(path: Path) -> bool:
+    try:
+        return path.exists() and 'hindsight-client' in path.read_text(encoding='utf-8')
+    except OSError:
+        return False
+
+
 DEFAULT_HOST = os.getenv("HERMES_WEBUI_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.getenv("HERMES_WEBUI_PORT", "8787"))
 # Set HERMES_WEBUI_SKIP_ONBOARDING=1 to bypass the first-run wizard when
@@ -256,6 +277,19 @@ def ensure_python_has_webui_deps(python_exe: str, agent_dir: Path | None = None)
         ],
         check=True,
     )
+    if not _hindsight_enabled() and _file_mentions_hindsight(REPO_ROOT / "requirements.txt"):
+        raise RuntimeError(
+            "ENABLE_HINDSIGHT=false but requirements.txt mentions hindsight-client; refusing bootstrap"
+        )
+    installed_version = _hindsight_installed_version()
+    if not _hindsight_enabled() and installed_version is not None:
+        raise RuntimeError(
+            f"ENABLE_HINDSIGHT=false but hindsight-client is installed ({installed_version})"
+        )
+    if _hindsight_enabled() and installed_version is not None and installed_version != '0.7.2':
+        raise RuntimeError(
+            f"ENABLE_HINDSIGHT=true requires hindsight-client==0.7.2, found {installed_version}"
+        )
     if _python_can_run_webui_and_agent(str(venv_python), agent_dir):
         return str(venv_python)
     raise RuntimeError(

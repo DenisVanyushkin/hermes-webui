@@ -1,0 +1,32 @@
+services:
+  hermes-webui:
+    image: ${HERMES_WEBUI_IMAGE:-hermes-webui:prod}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        HERMES_VERSION: ${HERMES_WEBUI_GIT_SHA:-unknown}
+    ports:
+      - "127.0.0.1:${HERMES_WEBUI_PORT:-8787}:8787"
+    environment:
+      HERMES_WEBUI_HOST: 0.0.0.0
+      HERMES_WEBUI_PORT: ${HERMES_WEBUI_PORT:-8787}
+      ENABLE_HINDSIGHT: ${ENABLE_HINDSIGHT:-false}
+      HERMES_HOME: /opt/hermes-admin/hermes-home
+      HERMES_WEBUI_STATE_DIR: /opt/hermes-admin/hermes-home/webui
+      HERMES_WEBUI_AGENT_DIR: /opt/hermes-admin/repos/hermes-agent
+      HERMES_WEBUI_DEPLOY_DIR: /opt/hermes-admin/webui-deploy
+      HERMES_WEBUI_BACKUP_DIR: /opt/hermes-admin/backups
+      HERMES_WEBUI_AUDIT_DIR: /opt/hermes-admin/audit
+    volumes:
+      - ${HOST_HERMES_HOME:-/home/hermes/.hermes}:/opt/hermes-admin/hermes-home:rw
+      - ${HOST_WORKSPACE:-/workspace/live-hermes}:/opt/hermes-admin/workspace:rw
+      - ${HOST_REPOS:-/opt/hermes-webui/repos}:/opt/hermes-admin/repos:rw
+      - ${HOST_CONFIGS:-/opt/hermes-webui/configs}:/opt/hermes-admin/configs:rw
+      - ${HOST_SECRETS:-/opt/hermes-webui/secrets}:/opt/hermes-admin/secrets:rw
+      - ${HOST_BACKUPS:-/opt/hermes-webui/backups}:/opt/hermes-admin/backups:rw
+      - ${HOST_AUDIT:-/opt/hermes-webui/audit}:/opt/hermes-admin/audit:rw
+      - ${HOST_RELEASES:-/opt/hermes-webui/releases}:/opt/hermes-admin/releases:rw
+      - ${HOST_LOGS:-/opt/hermes-webui/logs}:/opt/hermes-admin/logs:rw
+      - ${HOST_DEPLOY:-/opt/hermes-webui}:/opt/hermes-admin/webui-deploy:ro
+    restart: unless-stopped

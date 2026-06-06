@@ -358,16 +358,30 @@ echo "";echo "== Activating hermes webui's virtual environment"
 source /app/venv/bin/activate || error_exit "Failed to activate hermeswebui virtual environment"
 test -x /app/venv/bin/python3
 
-ensure_hindsight_client_docker_dependency() {
-  # Keep this outside the .deps_installed fast-restart guard so existing
-  # two-container Docker venvs self-heal after this dependency was added.
-  _hindsight_client_requirement="hindsight-client>=0.4.22"
-  echo ""; echo "== Checking Hindsight memory provider dependency"
-  if uv pip show hindsight-client >/dev/null 2>&1; then
-    echo "-- hindsight-client already installed"
-  else
-    echo "-- Installing ${_hindsight_client_requirement} for Hindsight memory provider support"
+hindsight_enabled() {
+  case "${ENABLE_HINDSIGHT:-false}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+assert_hindsight_client_policy() {
+  echo ""; echo "== Checking Hindsight memory provider policy"
+  if hindsight_enabled; then
+    _hindsight_client_requirement="${HINDSIGHT_CLIENT_REQUIREMENT:-hindsight-client==0.7.2}"
+    echo "-- ENABLE_HINDSIGHT=true; installing ${_hindsight_client_requirement}"
     uv pip install "${_hindsight_client_requirement}" --trusted-host pypi.org --trusted-host files.pythonhosted.org || error_exit "Failed to install hindsight-client"
+    python - <<'PY' || error_exit "hindsight-client policy verification failed"
+import importlib.metadata as m
+assert m.version('hindsight-client') == '0.7.2', m.version('hindsight-client')
+print('[ok] hindsight-client==0.7.2 verified')
+PY
+  else
+    if uv pip show hindsight-client >/dev/null 2>&1; then
+      uv pip show hindsight-client
+      error_exit "ENABLE_HINDSIGHT=false but hindsight-client is already installed"
+    fi
+    echo "-- ENABLE_HINDSIGHT=false; skipping hindsight-client installation"
   fi
 }
 
@@ -451,7 +465,7 @@ else
   touch /app/venv/.deps_installed
 fi
 
-ensure_hindsight_client_docker_dependency
+assert_hindsight_client_policy
 
 echo ""; echo "== Running hermes-webui"
 cd /app; python server.py || error_exit "hermes-webui failed or exited with an error"
