@@ -15,6 +15,33 @@ INIT_SH   = (REPO_ROOT / "docker_init.bash").read_text(encoding="utf-8")
 UI_JS     = (REPO_ROOT / "static" / "ui.js").read_text(encoding="utf-8")
 
 
+# ── #669: hermes-agent source discovery respects HERMES_WEBUI_AGENT_DIR ─────
+
+
+def test_669_agent_dir_env_is_checked_first():
+    """docker_init.bash must prefer HERMES_WEBUI_AGENT_DIR over legacy paths."""
+    env_block_pos = INIT_SH.find('if [ -n "${HERMES_WEBUI_AGENT_DIR:-}" ]; then')
+    legacy_block_pos = INIT_SH.find('_agent_paths=(', INIT_SH.find('HERMES_WEBUI_AGENT_DIR'))
+    assert env_block_pos != -1, "HERMES_WEBUI_AGENT_DIR conditional not found in docker_init.bash"
+    assert legacy_block_pos != -1, "legacy hermes-agent path list not found in docker_init.bash"
+    assert env_block_pos < legacy_block_pos, (
+        "HERMES_WEBUI_AGENT_DIR must be checked before legacy fallback paths"
+    )
+
+
+def test_669_agent_dir_logging_and_error_are_explicit():
+    """docker_init.bash must log env/selection and hard-fail on bad env path."""
+    assert '-- HERMES_WEBUI_AGENT_DIR=${HERMES_WEBUI_AGENT_DIR:-<unset>}' in INIT_SH, (
+        "docker_init.bash must log the HERMES_WEBUI_AGENT_DIR value"
+    )
+    assert '-- selected agent source=${_agent_src}' in INIT_SH, (
+        "docker_init.bash must log the selected agent source"
+    )
+    assert 'HERMES_WEBUI_AGENT_DIR is set but hermes-agent source not found at:' in INIT_SH, (
+        "docker_init.bash must fail clearly when HERMES_WEBUI_AGENT_DIR points to a missing path"
+    )
+
+
 # ── #569: docker UID/GID auto-detect ─────────────────────────────────────────
 
 def test_569_uid_autodetect_present():

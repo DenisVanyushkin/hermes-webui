@@ -394,79 +394,83 @@ else
   uv pip install -U pip setuptools --trusted-host pypi.org --trusted-host files.pythonhosted.org
   test -x /app/venv/bin/pip
 
-  echo ""; echo "== Adding hermes-agent's pyproject.toml base dependencies to the virtual environment"
-  _agent_paths=(
-    "/home/hermeswebui/.hermes/hermes-agent"
-    "/opt/hermes"
-  )
+  echo ""; echo "== Resolving hermes-agent source"
+  echo "-- HERMES_WEBUI_AGENT_DIR=${HERMES_WEBUI_AGENT_DIR:-<unset>}"
+
   _agent_src=""
-  for _p in "${_agent_paths[@]}"; do
-    if [ -d "$_p" ] && [ -f "$_p/pyproject.toml" ]; then
-      _agent_src="$_p"
-      break
-    fi
-  done
-  if [ -n "$_agent_src" ]; then
-    if [ -w "$_agent_src" ]; then
-      echo ""
-      echo "!! WARNING: hermes-agent source mount is writable from the WebUI container."
-      echo "!!   Path: $_agent_src"
-      echo "!! The multi-container compose defaults use a read-only mount for defence-in-depth."
-      echo "!! If this is not an intentional local development checkout, switch the WebUI"
-      echo "!! agent source volume/bind mount to read-only. See docs/rfcs/agent-source-boundary.md."
-      echo ""
-    fi
-    # The agent source can be mounted read-only (see docker-compose.two-container.yml
-    # / docker-compose.three-container.yml — the WebUI only reads this volume to
-    # install the agent's Python dependencies and never writes to it). setuptools'
-    # `egg_info` build step, however, touches `hermes_agent.egg-info/` inside the
-    # source tree even under PEP 517 build isolation, which `EROFS`-fails on a
-    # `:ro` mount and (under `set -e`) kills startup of every multi-container
-    # deploy. Stage the source into a writable tmpfs copy so the build can write
-    # its metadata side-by-side without touching the underlying mount.
-    #
-    # The copy excludes any pre-baked `*.egg-info` / `build` / `dist` artifacts
-    # to avoid the timestamp-update path setuptools takes when one is present,
-    # and `--reflink=auto` makes the copy near-free on overlay2/btrfs where
-    # supported. We rebuild on every container start (the agent source can
-    # change across volume re-init); cost is one rsync of ~10MB of Python source.
-    _stage_src="/tmp/hermes-agent-build"
-    rm -rf "$_stage_src"
-    mkdir -p "$_stage_src"
-    if command -v rsync >/dev/null 2>&1; then
-      rsync -a \
-        --exclude='*.egg-info' --exclude='build' --exclude='dist' \
-        --exclude='__pycache__' --exclude='.git' \
-        "$_agent_src"/ "$_stage_src"/ \
-        || error_exit "Failed to stage hermes-agent source to writable build dir"
+  if [ -n "${HERMES_WEBUI_AGENT_DIR:-}" ]; then
+    if [ -d "${HERMES_WEBUI_AGENT_DIR}" ] && [ -f "${HERMES_WEBUI_AGENT_DIR}/pyproject.toml" ]; then
+      _agent_src="${HERMES_WEBUI_AGENT_DIR}"
     else
-      # Fallback when rsync isn't in the image — straight cp -a, then drop
-      # the build artifacts that would trip setuptools.
-      cp -a "$_agent_src"/. "$_stage_src"/ \
-        || error_exit "Failed to copy hermes-agent source to writable build dir"
-      rm -rf "$_stage_src"/*.egg-info "$_stage_src"/build "$_stage_src"/dist 2>/dev/null || true
-      find "$_stage_src" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+      error_exit "HERMES_WEBUI_AGENT_DIR is set but hermes-agent source not found at: ${HERMES_WEBUI_AGENT_DIR}"
     fi
-    # Install the hermes-agent base project without extras. The core project
-    # dependencies already cover the runtime imports WebUI needs for agent
-    # integration (dotenv, requests, httpx, run_agent, hermes_cli), while
-    # opt-in extras like `[all]` stay out of the startup path.
-    uv pip install "$_stage_src" --trusted-host pypi.org --trusted-host files.pythonhosted.org \
-      || error_exit "Failed to install hermes-agent's base project dependencies"
-    rm -rf "$_stage_src"
   else
+    _agent_paths=(
+      "/opt/hermes-admin/hermes-home/hermes-agent"
+      "/home/hermeswebui/.hermes/hermes-agent"
+      "/opt/hermes"
+      "/workspace/live-hermes"
+    )
+    for _p in "${_agent_paths[@]}"; do
+      if [ -d "$_p" ] && [ -f "$_p/pyproject.toml" ]; then
+        _agent_src="$_p"
+        break
+      fi
+    done
+    if [ -z "$_agent_src" ]; then
+      error_exit "hermes-agent source not found (set HERMES_WEBUI_AGENT_DIR or mount a legacy path)"
+    fi
+  fi
+
+  echo "-- selected agent source=${_agent_src}"
+
+  if [ -w "$_agent_src" ]; then
     echo ""
-    echo "!! WARNING: hermes-agent source not found."
-    echo "!!   Looked in: ${_agent_paths[0]}"
-    echo "!!              ${_agent_paths[1]}"
-    echo "!! The WebUI will start with reduced functionality (no model auto-detection,"
-    echo "!! no personality routing, no CLI session imports)."
-    echo "!! To fix: mount the agent source volume into the container:"
-    echo "!!   -v /path/to/hermes-agent:/home/hermeswebui/.hermes/hermes-agent"
-    echo "!! Or see the two-container compose example:"
-    echo "!!   https://github.com/nesquena/hermes-webui/blob/master/docker-compose.two-container.yml"
+    echo "!! WARNING: hermes-agent source mount is writable from the WebUI container."
+    echo "!!   Path: $_agent_src"
+    echo "!! The multi-container compose defaults use a read-only mount for defence-in-depth."
+    echo "!! If this is not an intentional local development checkout, switch the WebUI"
+    echo "!! agent source volume/bind mount to read-only. See docs/rfcs/agent-source-boundary.md."
     echo ""
   fi
+
+  # The agent source can be mounted read-only (see docker-compose.two-container.yml
+  # / docker-compose.three-container.yml — the WebUI only reads this volume to
+  # install the agent's Python dependencies and never writes to it). setuptools'
+  # `egg_info` build step, however, touches `hermes_agent.egg-info/` inside the
+  # source tree even under PEP 517 build isolation, which `EROFS`-fails on a
+  # `:ro` mount and (under `set -e`) kills startup of every multi-container
+  # deploy. Stage the source into a writable tmpfs copy so the build can write
+  # its metadata side-by-side without touching the underlying mount.
+  #
+  # The copy excludes any pre-baked `*.egg-info` / `build` / `dist` artifacts
+  # to avoid the timestamp-update path setuptools takes when one is present,
+  # and `--reflink=auto` makes the copy near-free on overlay2/btrfs where
+  # supported. We rebuild on every container start (the agent source can
+  # change across volume re-init); cost is one rsync of ~10MB of Python source.
+  _stage_src="/tmp/hermes-agent-build"
+  rm -rf "$_stage_src"
+  mkdir -p "$_stage_src"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a \
+      --exclude='*.egg-info' --exclude='build' --exclude='dist' \
+      --exclude='__pycache__' --exclude='.git' \
+      "$_agent_src"/ "$_stage_src"/ \
+      || error_exit "Failed to stage hermes-agent source to writable build dir"
+  else
+    # Fallback when rsync isn't in the image — straight cp -a, then drop
+    # the build artifacts that would trip setuptools.
+    cp -a "$_agent_src"/. "$_stage_src"/ \
+      || error_exit "Failed to copy hermes-agent source to writable build dir"
+    rm -rf "$_stage_src"/*.egg-info "$_stage_src"/build "$_stage_src"/dist 2>/dev/null || true
+    find "$_stage_src" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+  fi
+  # Install the hermes-agent base project without extras. The core project
+  # dependencies already cover the runtime imports WebUI needs for agent
+  # integration (dotenv, requests, httpx, run_agent, hermes_cli), while
+  # opt-in extras like `[all]` stay out of the startup path.
+  uv pip install "$_stage_src" --trusted-host pypi.org --trusted-host files.pythonhosted.org \
+    || error_exit "Failed to install hermes-agent's base project dependencies"
 
   if ! hindsight_enabled; then
     for _manifest in "$_stage_src/pyproject.toml" "$_stage_src/uv.lock" "$_stage_src/requirements.txt"; do
@@ -476,6 +480,7 @@ else
       fi
     done
   fi
+  rm -rf "$_stage_src"
 
   echo ""; echo "== Verifying WebUI runtime imports in /app/venv"
   python - <<'PY' || error_exit "Failed to verify WebUI runtime imports"
