@@ -12,11 +12,29 @@ port="${HERMES_WEBUI_PORT:-8787}"
 sha="${1:-$(release_state_current)}"
 service_name="hermes-webui"
 health_url="http://127.0.0.1:${port}/health"
-ready_timeout_seconds="${HERMES_WEBUI_SMOKE_TIMEOUT_SECONDS:-180}"
 ready_interval_seconds=2
 
 container_id="$(docker compose -f "$(compose_file_path)" ps -q "$service_name" 2>/dev/null || true)"
 [ -n "$container_id" ] || die "compose service $service_name is not running"
+
+healthcheck_start_period_ns="$(docker inspect --format '{{if .Config.Healthcheck}}{{.Config.Healthcheck.StartPeriod}}{{else}}0{{end}}' "$container_id" 2>/dev/null || echo 0)"
+healthcheck_start_period_seconds="$(python3 - "$healthcheck_start_period_ns" <<'PY'
+import sys
+raw = sys.argv[1].strip()
+try:
+    ns = int(raw)
+except ValueError:
+    ns = 0
+print(max(0, ns // 1_000_000_000))
+PY
+)"
+if [ -n "${HERMES_WEBUI_SMOKE_TIMEOUT_SECONDS:-}" ]; then
+  ready_timeout_seconds="${HERMES_WEBUI_SMOKE_TIMEOUT_SECONDS}"
+else
+  ready_timeout_seconds="$((healthcheck_start_period_seconds + 300))"
+  [ "$ready_timeout_seconds" -lt 600 ] && ready_timeout_seconds=600
+fi
+log "readiness timeout: ${ready_timeout_seconds}s (docker health start_period: ${healthcheck_start_period_seconds}s)"
 
 wait_for_health() {
   local deadline now code stderr health_status

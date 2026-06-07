@@ -96,6 +96,54 @@ release_state_previous() {
   [ -f "$f" ] && cat "$f" || true
 }
 
+write_release_state() {
+  local path="$1"
+  local value="$2"
+  ensure_dir "$(dirname "$path")"
+  printf '%s\n' "$value" > "$path"
+}
+
+runtime_health_url() {
+  printf 'http://127.0.0.1:%s/health\n' "${HERMES_WEBUI_PORT:-8787}"
+}
+
+runtime_release_from_health_header() {
+  local health_url server_header
+  health_url="$(runtime_health_url)"
+  server_header="$(curl -fsSI --max-time "${HERMES_WEBUI_HEALTH_TIMEOUT_SECONDS:-5}" "$health_url" 2>/dev/null | tr -d '\r' | awk 'tolower($1) == "server:" { sub(/^[^:]+:[[:space:]]*/, "", $0); print; exit }')"
+  server_header="${server_header%%[[:space:]]*}"
+  case "$server_header" in
+    HermesWebUI/*)
+      printf '%s\n' "${server_header#HermesWebUI/}"
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+repair_release_metadata_from_runtime() {
+  local running current previous
+  running="$(runtime_release_from_health_header)" || die "unable to determine running release from /health Server header"
+  current="$(release_state_current)"
+  previous="$(release_state_previous)"
+
+  if [ -n "$current" ] && [ "$current" = "$running" ]; then
+    log "release metadata already aligned with running release ${running}"
+    return 0
+  fi
+
+  write_release_state "$(current_release_file)" "$running"
+  if [ -n "$current" ]; then
+    write_release_state "$(previous_release_file)" "$current"
+  elif [ -z "$previous" ]; then
+    write_release_state "$(previous_release_file)" ""
+  fi
+
+  record_history "repair" "current=${running} previous=${current:-$previous} source=runtime"
+  record_audit "repair" "current=${running} previous=${current:-$previous} source=runtime"
+  log "repaired release metadata from running release ${running}"
+}
+
 record_history() {
   ensure_dir "$(current_releases_dir)"
   printf '%s | %s | %s\n' "$(ts)" "$1" "$2" >> "$(history_log_file)"

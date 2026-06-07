@@ -16,8 +16,6 @@ previous_before="${2:-$(release_state_previous)}"
 docker image inspect "$image_previous" >/dev/null 2>&1 || die "missing previous image tag: $image_previous"
 docker tag "$image_previous" "$image_prod"
 
-printf '%s\n' "$previous_before" > "$(current_release_file)"
-printf '%s\n' "$current_before" > "$(previous_release_file)"
 record_history "rollback" "current=${previous_before} previous=${current_before} image=${image_prod}"
 record_audit "rollback" "current=${previous_before} previous=${current_before}"
 
@@ -26,4 +24,10 @@ HERMES_WEBUI_IMAGE="$image_prod" \
 docker compose -f "$(compose_file_path)" up -d --no-build
 
 bash "$SCRIPT_DIR/smoke.sh" "$previous_before"
+write_release_state "$(current_release_file)" "$previous_before"
+if [ -n "$current_before" ]; then
+  write_release_state "$(previous_release_file)" "$current_before"
+fi
+record_history "rollback-applied" "current=${previous_before} previous=${current_before} image=${image_prod}"
+record_audit "rollback-applied" "current=${previous_before} previous=${current_before}"
 log "rollback complete"

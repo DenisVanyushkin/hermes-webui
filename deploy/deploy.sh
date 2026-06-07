@@ -25,13 +25,6 @@ if docker image inspect "$image_prod" >/dev/null 2>&1; then
 fi
 docker tag "$image_sha" "$image_prod"
 
-ensure_dir "$(current_releases_dir)"
-printf '%s\n' "$sha" > "$(current_release_file)"
-if [ -n "$current_before" ]; then
-  printf '%s\n' "$current_before" > "$(previous_release_file)"
-else
-  printf '%s\n' "${previous_before:-}" > "$(previous_release_file)"
-fi
 record_history "deploy" "current=${sha} previous=${previous_state} image=${image_prod}"
 record_audit "deploy" "current=${sha} previous=${previous_state}"
 
@@ -46,5 +39,14 @@ if ! bash "$SCRIPT_DIR/smoke.sh" "$sha"; then
   bash "$SCRIPT_DIR/rollback.sh" "$current_before" "$previous_before"
   die "deploy smoke failed, rollback attempted"
 fi
+
+write_release_state "$(current_release_file)" "$sha"
+if [ -n "$current_before" ]; then
+  write_release_state "$(previous_release_file)" "$current_before"
+else
+  write_release_state "$(previous_release_file)" "${previous_before:-}"
+fi
+record_history "deploy-applied" "current=${sha} previous=${previous_state} image=${image_prod}"
+record_audit "deploy-applied" "current=${sha} previous=${previous_state}"
 
 log "deploy completed"
