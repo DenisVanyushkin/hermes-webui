@@ -138,6 +138,27 @@ def test_compose_files_point_to_docker_md_for_upgrades():
         )
 
 
+def test_local_first_compose_mounts_ssh_control_path_readonly():
+    """The local-first WebUI compose file must expose the host SSH control
+    directory read-only so the container can invoke the same forced-command
+    gateway as the host user."""
+    src = (REPO / "deploy" / "docker-compose.local-first.yml").read_text(encoding="utf-8")
+    assert (
+        "${HOST_WEBUI_CONTROL_SSH:-/opt/hermes-webui/ssh}:/opt/hermes-webui/ssh:ro" in src
+    ), "local-first compose must mount /opt/hermes-webui/ssh read-only"
+    env = (REPO / "deploy" / ".env.example").read_text(encoding="utf-8")
+    assert "HOST_WEBUI_CONTROL_SSH=/opt/hermes-webui/ssh" in env
+
+
+def test_host_gateway_docs_document_hermes_sandbox_mounts():
+    """The docs must explain that per-dialog Hermes sandboxes get their mounts
+    from terminal.docker_volumes in ~/.hermes/config.yaml, not from WebUI compose."""
+    docs = (REPO / "docs" / "deployment" / "host-gateway.md").read_text(encoding="utf-8")
+    assert "terminal.docker_volumes" in docs
+    assert "/opt/hermes-webui/ssh:/opt/hermes-webui/ssh:ro" in docs
+    assert "\n- `/opt/hermes-webui/ssh`" in docs
+
+
 # ── 4: docs/docker.md frames the isolation model honestly ──────────────────
 
 
@@ -190,19 +211,19 @@ def test_docker_init_stages_agent_source_for_writable_install():
     #   uv pip install "$_stage_src[all]" ...
     install_lines = [
         line for line in src.splitlines()
-        if "uv pip install" in line and "[all]" in line
+        if "uv pip install" in line and "_stage_src" in line
     ]
-    assert install_lines, "expected an `uv pip install ...[all]` line in docker_init.bash"
+    assert install_lines, "expected a staged `uv pip install` line in docker_init.bash"
     for line in install_lines:
-        assert '"$_agent_src[all]"' not in line, (
-            "docker_init.bash invokes `uv pip install $_agent_src[all]` "
+        assert '"$_agent_src' not in line, (
+            "docker_init.bash invokes `uv pip install $_agent_src` "
             "directly — this fails with EROFS when the hermes-agent volume "
             "is mounted :ro (the production multi-container default). "
             "Use the writable $_stage_src path instead. "
             f"Offending line: {line!r}"
         )
         assert "_stage_src" in line, (
-            "the `uv pip install ...[all]` line must use the staged writable "
+            "the `uv pip install` line must use the staged writable "
             f"path. Offending line: {line!r}"
         )
 

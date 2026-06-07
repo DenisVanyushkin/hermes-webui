@@ -16,6 +16,8 @@ This branch prepares a local-first, host-run admin console for Hermes without ch
 - No host-path migration by default.
 - Cloudflare Access / cloudflared is handled outside this repo.
 - WebUI publishes only on `127.0.0.1:8787` on the host side.
+- The WebUI container can reach the host-side SSH control path read-only at
+  `/opt/hermes-webui/ssh`.
 
 ## Local-first flow
 

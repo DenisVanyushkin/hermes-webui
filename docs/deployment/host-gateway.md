@@ -30,6 +30,8 @@ Installed on the host by `deploy/host-gateway/install.sh`:
 - `/usr/local/lib/hermes-webui-control/approved-releases.tsv`
 - `/usr/local/share/doc/hermes-webui-control/authorized_keys.example`
 - `/usr/local/share/doc/hermes-webui-control/sudoers.example`
+- `/opt/hermes-webui/ssh` — host-side persistent SSH control path used by the
+  gateway, the WebUI container, and per-dialog Hermes sandboxes
 
 ## Mutable source files
 
@@ -47,6 +49,8 @@ These stay in the repo and are *not* used directly by the gateway at runtime:
 ## Target properties
 
 - No `docker.sock` inside the WebUI container or sandbox.
+- The host gateway runs as the `hermes` user and does not need a container
+  mount for `/opt/hermes-webui/ssh`.
 - No unrestricted shell for the deploy user.
 - No sudo access to mutable repo scripts.
 - One root-owned wrapper at `/usr/local/sbin/hermes-webui-control`.
@@ -82,6 +86,8 @@ Prefer a root-owned wrapper plus a tightly scoped privileged entrypoint.
 ## Security model
 
 - The wrapper is root-owned and executed via forced-command.
+- The SSH control directory is mounted read-only into the WebUI container and
+  into Hermes per-dialog sandboxes; it stays writable only on the host side.
 - The deploy user should ideally use `nologin`.
 - The user does not get an interactive shell.
 - The user does not get sudo on the repo checkout or deploy scripts.
@@ -135,6 +141,7 @@ Prefer a root-owned wrapper plus a tightly scoped privileged entrypoint.
 ## Expected host layout
 
 - Repo checkout: `/opt/hermes-webui/repo`
+- Persistent SSH control path: `/opt/hermes-webui/ssh`
 - Release state: `/opt/hermes-webui/releases`
 - Backups: `/opt/hermes-webui/backups`
 - Audit: `/opt/hermes-webui/audit`
@@ -193,6 +200,29 @@ runtime control plane:
   should still keep the checkout tightly controlled.
 - The gateway does not by itself solve Cloudflare Access or SSH distribution.
   It only hardens the host-side execution path.
+- If the sandbox config is not updated, the per-dialog containers still will not
+  see `/opt/hermes-webui/ssh` even if the host gateway works fine.
+
+## Hermes sandbox mounts
+
+Per-dialog Hermes containers do **not** get mounts from the WebUI compose file.
+Their filesystem mounts come from `terminal.docker_volumes` in
+`/home/hermes/.hermes/config.yaml` (or the active profile equivalent).
+
+For the SSH control path, the proposed sandbox mount is:
+
+```yaml
+terminal:
+  docker_volumes:
+    - /opt/hermes-webui/ssh:/opt/hermes-webui/ssh:ro
+```
+
+Notes:
+- keep it read-only
+- do not mount `docker.sock`
+- do not mount Cloudflare secrets or registry tokens
+- do not change the gateway wrapper path; deploy still goes through
+  `/usr/local/sbin/hermes-webui-control`
 
 ## Access is not enabled yet
 
