@@ -12,7 +12,7 @@ port="${HERMES_WEBUI_PORT:-8787}"
 sha="${1:-$(release_state_current)}"
 service_name="hermes-webui"
 health_url="http://127.0.0.1:${port}/health"
-ready_timeout_seconds=90
+ready_timeout_seconds="${HERMES_WEBUI_SMOKE_TIMEOUT_SECONDS:-180}"
 ready_interval_seconds=2
 
 container_id="$(docker compose -f "$(compose_file_path)" ps -q "$service_name" 2>/dev/null || true)"

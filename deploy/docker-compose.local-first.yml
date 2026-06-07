@@ -30,4 +30,10 @@ services:
       - ${HOST_RELEASES:-/opt/hermes-webui/releases}:/opt/hermes-admin/releases:rw
       - ${HOST_LOGS:-/opt/hermes-webui/logs}:/opt/hermes-admin/logs:rw
       - ${HOST_DEPLOY:-/opt/hermes-webui}:/opt/hermes-admin/webui-deploy:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl --silent --show-error --fail http://127.0.0.1:8787/health >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 180s
     restart: unless-stopped

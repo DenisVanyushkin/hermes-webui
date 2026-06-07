@@ -70,6 +70,10 @@ This branch prepares a local-first, host-run admin console for Hermes without ch
   and installs its dependencies into `/app/venv` with `uv pip`.
 - The runtime then verifies `dotenv`, `requests`, `httpx`, `run_agent`, and
   `hermes_cli` import successfully from the container-local environment.
+- First startup can take 2+ minutes on a cold cache because the container-local
+  `/app/venv` needs time to install the agent base dependencies.
+- That slow first boot is expected; `deploy/smoke.sh` must use a timeout longer
+  than the cold-start window.
 - `ENABLE_HINDSIGHT=false` stays strict: the startup path refuses any staged
   agent metadata that mentions `hindsight-client`, and runtime/build checks
   fail if `hindsight-client` is present.
