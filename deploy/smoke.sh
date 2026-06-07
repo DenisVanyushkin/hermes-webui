@@ -76,8 +76,17 @@ hindsight-client unexpectedly installed
 ENABLE_HINDSIGHT=true requires hindsight-client==0.7.2
 EOF
   fi
-  docker exec "$container_id" python - <<'PY'
+  docker exec "$container_id" /app/venv/bin/python - <<'PY'
+import importlib
 import importlib.metadata as metadata
+import sys
+
+for module in ('dotenv', 'requests', 'httpx', 'run_agent', 'hermes_cli'):
+    importlib.import_module(module)
+
+if not sys.executable.startswith('/app/venv/bin/python'):
+    raise SystemExit(f'unexpected runtime python: {sys.executable}')
+
 try:
     version = metadata.version('hindsight-client')
 except metadata.PackageNotFoundError:
@@ -86,8 +95,17 @@ else:
     raise SystemExit(f'unexpected hindsight-client installed: {version}')
 PY
 else
-  docker exec "$container_id" python - <<'PY'
+  docker exec "$container_id" /app/venv/bin/python - <<'PY'
+import importlib
 import importlib.metadata as metadata
+import sys
+
+for module in ('dotenv', 'requests', 'httpx', 'run_agent', 'hermes_cli'):
+    importlib.import_module(module)
+
+if not sys.executable.startswith('/app/venv/bin/python'):
+    raise SystemExit(f'unexpected runtime python: {sys.executable}')
+
 version = metadata.version('hindsight-client')
 assert version == '0.7.2', version
 print(version)

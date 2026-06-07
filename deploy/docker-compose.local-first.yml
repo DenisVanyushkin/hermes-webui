@@ -15,7 +15,7 @@ services:
       HERMES_HOME: /opt/hermes-admin/hermes-home
       HERMES_WEBUI_STATE_DIR: /opt/hermes-admin/hermes-home/webui
       HERMES_WEBUI_AGENT_DIR: ${HERMES_WEBUI_AGENT_DIR:-/opt/hermes-admin/hermes-home/hermes-agent}
-      HERMES_WEBUI_PYTHON: ${HERMES_WEBUI_PYTHON:-/opt/hermes-admin/hermes-home/hermes-agent/venv/bin/python}
+      HERMES_WEBUI_PYTHON: ${HERMES_WEBUI_PYTHON:-/app/venv/bin/python}
       HERMES_WEBUI_DEPLOY_DIR: /opt/hermes-admin/webui-deploy
       HERMES_WEBUI_BACKUP_DIR: /opt/hermes-admin/backups
       HERMES_WEBUI_AUDIT_DIR: /opt/hermes-admin/audit

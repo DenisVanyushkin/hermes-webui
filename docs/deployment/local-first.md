@@ -55,12 +55,26 @@ This branch prepares a local-first, host-run admin console for Hermes without ch
 
 - WebUI already supports `HERMES_WEBUI_PYTHON` as the explicit override for the
   interpreter it launches and uses for agent imports.
-- In production, point it at the real agent venv, not the local `.venv` that
-  belongs to the WebUI checkout.
-- Recommended default for this host layout:
-  `/opt/hermes-admin/hermes-home/hermes-agent/venv/bin/python`
+- In this production layout, the WebUI container should use its own runtime
+  virtualenv at `/app/venv`, not the host-mounted Hermes Agent venv.
+- Recommended default for this setup:
+  `/app/venv/bin/python`
 - The local-first compose file and `.env.example` set that value so the WebUI
-  does not auto-detect the broken `.venv/bin/python` path.
+  does not touch the broken host venv path inside the container.
+
+## Agent dependency install path
+
+- The container keeps the agent source mounted at
+  `/opt/hermes-admin/hermes-home/hermes-agent`.
+- On startup, the container stages the agent source into a writable temp copy
+  and installs its dependencies into `/app/venv` with `uv pip`.
+- The runtime then verifies `dotenv`, `requests`, `httpx`, `run_agent`, and
+  `hermes_cli` import successfully from the container-local environment.
+- `ENABLE_HINDSIGHT=false` stays strict: the startup path refuses any staged
+  agent metadata that mentions `hindsight-client`, and runtime/build checks
+  fail if `hindsight-client` is present.
+- The host Hermes gateway remains separate; nothing here mounts or executes the
+  host agent venv inside the container.
 
 ## Port
 

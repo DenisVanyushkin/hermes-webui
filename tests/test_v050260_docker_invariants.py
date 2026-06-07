@@ -85,7 +85,22 @@ def test_single_container_compose_uses_same_uid_source():
     assert "WANTED_GID=${GID:-1000}" in src
 
 
-# ── 2: bind-mount permission escape hatches documented (#1389, #1399) ──────
+def test_local_first_compose_uses_container_local_python():
+    """Local-first deployment must use the container-local venv, not the
+    host-mounted Hermes Agent venv path."""
+    src = (REPO / "deploy" / "docker-compose.local-first.yml").read_text(encoding="utf-8")
+    assert "HERMES_WEBUI_PYTHON: ${HERMES_WEBUI_PYTHON:-/app/venv/bin/python}" in src
+    assert "/opt/hermes-admin/hermes-home/hermes-agent/venv/bin/python" not in src
+
+
+def test_local_first_smoke_checks_container_local_runtime_python():
+    """Smoke must verify runtime imports and use the container-local Python."""
+    src = (REPO / "deploy" / "smoke.sh").read_text(encoding="utf-8")
+    assert "/app/venv/bin/python" in src
+    for mod in ("dotenv", "requests", "httpx", "run_agent", "hermes_cli"):
+        assert mod in src
+
+
 
 
 def test_compose_files_document_skip_chmod_escape_hatch():

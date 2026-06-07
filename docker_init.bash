@@ -338,6 +338,7 @@ else
   curl -LsSf https://astral.sh/uv/install.sh | sh || error_exit "Failed to install uv — check network connectivity"
 fi
 export UV_PROJECT_ENVIRONMENT=venv
+export HERMES_WEBUI_PYTHON="${HERMES_WEBUI_PYTHON:-/app/venv/bin/python}"
 
 export UV_CACHE_DIR=${UV_CACHE_DIR:-/uv_cache}
 mkdir -p "${UV_CACHE_DIR}" || error_exit "Failed to create ${UV_CACHE_DIR} directory"
@@ -462,6 +463,36 @@ else
     echo "!!   https://github.com/nesquena/hermes-webui/blob/master/docker-compose.two-container.yml"
     echo ""
   fi
+
+  if ! hindsight_enabled; then
+    for _manifest in "$_stage_src/pyproject.toml" "$_stage_src/uv.lock" "$_stage_src/requirements.txt"; do
+      if [ -f "$_manifest" ] && grep -Fq 'hindsight-client' "$_manifest"; then
+        rm -rf "$_stage_src"
+        error_exit "ENABLE_HINDSIGHT=false but staged agent metadata mentions hindsight-client in $_manifest"
+      fi
+    done
+  fi
+
+  echo ""; echo "== Verifying WebUI runtime imports in /app/venv"
+  python - <<'PY' || error_exit "Failed to verify WebUI runtime imports"
+import importlib
+import importlib.metadata as metadata
+import sys
+
+for module in ('dotenv', 'requests', 'httpx', 'run_agent', 'hermes_cli'):
+    importlib.import_module(module)
+
+if not sys.executable.startswith('/app/venv/bin/python'):
+    raise SystemExit(f'unexpected runtime python: {sys.executable}')
+
+print('[ok] runtime imports verified in /app/venv')
+try:
+    version = metadata.version('hindsight-client')
+except metadata.PackageNotFoundError:
+    print('[ok] hindsight-client absent')
+else:
+    raise SystemExit(f'unexpected hindsight-client installed: {version}')
+PY
   touch /app/venv/.deps_installed
 fi
 

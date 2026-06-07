@@ -152,10 +152,15 @@ ensure_hindsight_default_policy_sources() {
   if grep -Fq 'ensure_hindsight_client_docker_dependency' "$repo/docker_init.bash"; then
     die "docker_init.bash still references the removed hindsight auto-install helper"
   fi
-  grep -Fq '_hindsight_enabled' "$repo/api/startup.py" \
-    || die "api/startup.py is missing the hindsight policy guard"
   grep -Fq '_hindsight_enabled' "$repo/bootstrap.py" \
     || die "bootstrap.py is missing the hindsight policy guard"
+  grep -Fq '_hindsight_enabled' "$repo/api/startup.py" \
+    || die "api/startup.py is missing the hindsight policy guard"
+  grep -Fq 'HERMES_WEBUI_PYTHON: ${HERMES_WEBUI_PYTHON:-/app/venv/bin/python}' "$repo/deploy/docker-compose.local-first.yml" \
+    || die "deploy/docker-compose.local-first.yml must default HERMES_WEBUI_PYTHON to /app/venv/bin/python"
+  if grep -Fq '/opt/hermes-admin/hermes-home/hermes-agent/venv/bin/python' "$repo/deploy/docker-compose.local-first.yml"; then
+    die "deploy/docker-compose.local-first.yml still references the host-mounted agent venv python"
+  fi
 }
 
 report_release_state() {
