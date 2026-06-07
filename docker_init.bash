@@ -473,12 +473,29 @@ else
     || error_exit "Failed to install hermes-agent's base project dependencies"
 
   if ! hindsight_enabled; then
-    for _manifest in "$_stage_src/pyproject.toml" "$_stage_src/uv.lock" "$_stage_src/requirements.txt"; do
-      if [ -f "$_manifest" ] && grep -Fq 'hindsight-client' "$_manifest"; then
-        rm -rf "$_stage_src"
-        error_exit "ENABLE_HINDSIGHT=false but staged agent metadata mentions hindsight-client in $_manifest"
-      fi
-    done
+    python - "$_stage_src/pyproject.toml" <<'PY' || { rm -rf "$_stage_src"; error_exit "ENABLE_HINDSIGHT=false but staged agent base dependencies include hindsight-client"; }
+import sys
+from pathlib import Path
+import tomllib
+
+pyproject = Path(sys.argv[1])
+data = tomllib.loads(pyproject.read_text(encoding='utf-8'))
+project = data.get('project', {})
+base_deps = project.get('dependencies', []) or []
+optional_deps = project.get('optional-dependencies', {}) or {}
+
+if any('hindsight-client' in dep for dep in base_deps):
+    raise SystemExit('base dependencies mention hindsight-client')
+
+allowed_optional_hits = [
+    extra for extra, deps in optional_deps.items()
+    if any('hindsight-client' in dep for dep in (deps or []))
+]
+if allowed_optional_hits:
+    print(f"[ok] hindsight-client is optional only (extras: {', '.join(sorted(allowed_optional_hits))})")
+else:
+    print('[ok] hindsight-client absent from base dependencies')
+PY
   fi
   rm -rf "$_stage_src"
 

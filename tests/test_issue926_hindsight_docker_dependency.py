@@ -17,6 +17,14 @@ def test_docker_init_has_explicit_hindsight_gate():
     assert "ensure_hindsight_client_docker_dependency" not in INIT_SH
 
 
+def test_docker_init_hindsight_guard_distinguishes_optional_metadata():
+    assert "tomllib" in INIT_SH
+    assert "project.get('dependencies'" in INIT_SH or 'project.get("dependencies"' in INIT_SH
+    assert "optional-dependencies" in INIT_SH
+    assert "for _manifest in \"$_stage_src/pyproject.toml\" \"$_stage_src/uv.lock\" \"$_stage_src/requirements.txt\"" not in INIT_SH
+    assert "ENABLE_HINDSIGHT=false but staged agent metadata mentions hindsight-client" not in INIT_SH
+
+
 def test_startup_blocks_hindsight_in_default_mode(tmp_path, capsys):
     agent_dir = tmp_path / "hermes-agent"
     agent_dir.mkdir()
