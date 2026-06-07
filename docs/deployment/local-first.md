@@ -51,6 +51,17 @@ This branch prepares a local-first, host-run admin console for Hermes without ch
 - The temporary symlink workaround is not required for the standard deployment
   path.
 
+## Python interpreter resolution
+
+- WebUI already supports `HERMES_WEBUI_PYTHON` as the explicit override for the
+  interpreter it launches and uses for agent imports.
+- In production, point it at the real agent venv, not the local `.venv` that
+  belongs to the WebUI checkout.
+- Recommended default for this host layout:
+  `/opt/hermes-admin/hermes-home/hermes-agent/venv/bin/python`
+- The local-first compose file and `.env.example` set that value so the WebUI
+  does not auto-detect the broken `.venv/bin/python` path.
+
 ## Port
 
 - Default host publish: `127.0.0.1:8787:8787`
