@@ -1,0 +1,257 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 027
+
+PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+readonly REPO_DIR='/opt/hermes-webui/repo'
+readonly INST_DIR='/usr/local/lib/hermes-webui-control'
+readonly AUDIT_DIR='/opt/hermes-webui/audit'
+readonly AUDIT_FILE='/opt/hermes-webui/audit/host-gateway.log'
+readonly OP_LOG_DIR='/opt/hermes-webui/audit/ops'
+readonly LOCK_FILE='/run/lock/hermes-webui-control.lock'
+readonly APPROVED_BRANCH_FILE="$INST_DIR/approved-branch"
+readonly APPROVED_RELEASES_FILE="$INST_DIR/approved-releases.tsv"
+
+EXIT_USAGE=64
+EXIT_POLICY=65
+EXIT_STATE=66
+EXIT_LOCK=67
+EXIT_DEPENDENCY=68
+
+log_ts() {
+  date -u +%Y%m%dT%H%M%SZ
+}
+
+die() {
+  local code="${1:-1}"
+  shift || true
+  printf '[%s] ERROR: %s\n' "$(log_ts)" "$*" >&2
+  exit "$code"
+}
+
+require_root() {
+  [ "${EUID:-$(id -u)}" -eq 0 ] || die "$EXIT_POLICY" 'wrapper must run as root'
+}
+
+ensure_layout() {
+  mkdir -p "$AUDIT_DIR" "$OP_LOG_DIR"
+  [ -d "$REPO_DIR/.git" ] || die "$EXIT_STATE" "missing repo checkout: $REPO_DIR"
+  [ -r "$APPROVED_BRANCH_FILE" ] || die "$EXIT_STATE" "missing approved branch file: $APPROVED_BRANCH_FILE"
+  [ -r "$APPROVED_RELEASES_FILE" ] || :
+  for f in lib.sh build deploy rollback smoke status; do
+    [ -e "$INST_DIR/$f" ] || die "$EXIT_STATE" "missing installed script: $INST_DIR/$f"
+  done
+}
+
+check_immutable() {
+  local path="$1"
+  local expect_mode="$2"
+  local expect_user="root"
+  local expect_group="root"
+  local mode
+  local owner_group
+  mode="$(stat -c '%a' "$path")"
+  owner_group="$(stat -c '%U:%G' "$path")"
+  [ "$mode" = "$expect_mode" ] || die "$EXIT_POLICY" "unexpected mode for $path: $mode (expected $expect_mode)"
+  [ "$owner_group" = "$expect_user:$expect_group" ] || die "$EXIT_POLICY" "unexpected owner for $path: $owner_group (expected root:root)"
+}
+
+load_lib() {
+  # shellcheck disable=SC1090
+  source "$INST_DIR/lib.sh"
+}
+
+setup_operation_log() {
+  local action_name="$1"
+  local op_log="$OP_LOG_DIR/${action_name}-$(log_ts)-$$.log"
+  exec > >(tee -a "$op_log") 2>&1
+}
+
+summary_audit() {
+  local action_name="$1"
+  local sha="${2:-}"
+  local detail="${3:-}"
+  printf '%s | actor=%s | source=%s | action=%s | sha=%s | detail=%s\n' \
+    "$(log_ts)" \
+    "${SUDO_USER:-${USER:-root}}" \
+    "${SSH_CONNECTION:-local}" \
+    "$action_name" \
+    "$sha" \
+    "$detail" >> "$AUDIT_FILE"
+  chmod 0640 "$AUDIT_FILE" 2>/dev/null || true
+}
+
+validate_sha() {
+  local sha="$1"
+  [[ "$sha" =~ ^[0-9a-f]{12,40}$ ]] || die "$EXIT_USAGE" "invalid sha: $sha"
+}
+
+ensure_git_commit_object() {
+  local sha="$1"
+  git -C "$REPO_DIR" cat-file -e "${sha}^{commit}" \
+    || die "$EXIT_POLICY" "sha is not a commit object: $sha"
+}
+
+ensure_clean_checkout() {
+  if [ -n "$(git -C "$REPO_DIR" status --porcelain)" ]; then
+    die "$EXIT_POLICY" 'repo checkout is dirty; refusing to build/deploy'
+  fi
+}
+
+approved_branch() {
+  local branch
+  branch="$(sed -n '1p' "$APPROVED_BRANCH_FILE" | tr -d '[:space:]')"
+  [ -n "$branch" ] || die "$EXIT_STATE" "approved branch file is empty: $APPROVED_BRANCH_FILE"
+  printf '%s\n' "$branch"
+}
+
+approved_release_sha() {
+  local sha="$1"
+  [ -r "$APPROVED_RELEASES_FILE" ] || return 1
+  awk -F'|' -v sha="$sha" '$1 == sha && $2 ~ /^[[:space:]]*approved[[:space:]]*$/ { found=1 } END { exit(found ? 0 : 1) }' "$APPROVED_RELEASES_FILE"
+}
+
+ensure_target_matches_checkout() {
+  local sha="$1"
+  local head_sha
+  head_sha="$(git -C "$REPO_DIR" rev-parse HEAD)"
+  [ "$sha" = "$head_sha" ] || die "$EXIT_POLICY" "target sha must match checked-out HEAD ($head_sha)"
+  ensure_git_commit_object "$sha"
+}
+
+ensure_source_approved() {
+  local sha="$1"
+  local head_branch
+  local branch
+  branch="$(approved_branch)"
+  head_branch="$(git -C "$REPO_DIR" symbolic-ref --short -q HEAD || true)"
+  if [ "$head_branch" = "$branch" ]; then
+    return 0
+  fi
+  if approved_release_sha "$sha"; then
+    return 0
+  fi
+  die "$EXIT_POLICY" "deploy/build allowed only from approved branch ($branch) or approved release metadata"
+}
+
+validate_installed_tree() {
+  check_immutable "$INST_DIR/lib.sh" 0644
+  check_immutable "$INST_DIR/build" 0755
+  check_immutable "$INST_DIR/deploy" 0755
+  check_immutable "$INST_DIR/rollback" 0755
+  check_immutable "$INST_DIR/smoke" 0755
+  check_immutable "$INST_DIR/status" 0755
+}
+
+validate_security_policy() {
+  ensure_layout
+  validate_installed_tree
+  load_lib
+  REPO_ROOT_OVERRIDE="$REPO_DIR" ENABLE_HINDSIGHT=false ensure_hindsight_default_policy_sources
+  grep -Fq '127.0.0.1:${HERMES_WEBUI_PORT:-8787}:8787' "$REPO_DIR/deploy/docker-compose.local-first.yml" \
+    || die "$EXIT_POLICY" 'compose file must bind WebUI to 127.0.0.1:8787'
+  grep -Fq 'ENABLE_HINDSIGHT: ${ENABLE_HINDSIGHT:-false}' "$REPO_DIR/deploy/docker-compose.local-first.yml" \
+    || die "$EXIT_POLICY" 'compose file must default ENABLE_HINDSIGHT to false'
+  grep -Fq 'HERMES_HOME: /opt/hermes-admin/hermes-home' "$REPO_DIR/deploy/docker-compose.local-first.yml" \
+    || die "$EXIT_POLICY" 'compose file must keep HERMES_HOME inside /opt/hermes-admin namespace'
+  grep -Fq 'HERMES_WEBUI_HOST: 0.0.0.0' "$REPO_DIR/deploy/docker-compose.local-first.yml" \
+    || die "$EXIT_POLICY" 'compose file must keep the container listening on 0.0.0.0 internally'
+  ! grep -Fq 'docker.sock' "$REPO_DIR/deploy/docker-compose.local-first.yml" \
+    || die "$EXIT_POLICY" 'compose file must not mount docker.sock'
+}
+
+with_lock() {
+  local action_name="$1"
+  shift
+  exec 9>"$LOCK_FILE"
+  flock -n 9 || die "$EXIT_LOCK" 'another build/deploy/rollback is already running'
+  setup_operation_log "$action_name"
+  "$@"
+}
+
+run_status() {
+  load_lib
+  REPO_ROOT_OVERRIDE="$REPO_DIR" COMPOSE_FILE="$REPO_DIR/deploy/docker-compose.local-first.yml" ENABLE_HINDSIGHT=false bash "$INST_DIR/status"
+}
+
+run_smoke() {
+  validate_security_policy
+  load_lib
+  REPO_ROOT_OVERRIDE="$REPO_DIR" COMPOSE_FILE="$REPO_DIR/deploy/docker-compose.local-first.yml" ENABLE_HINDSIGHT=false bash "$INST_DIR/smoke"
+}
+
+run_build() {
+  local sha="$1"
+  validate_sha "$sha"
+  validate_security_policy
+  ensure_clean_checkout
+  ensure_target_matches_checkout "$sha"
+  ensure_source_approved "$sha"
+  load_lib
+  REPO_ROOT_OVERRIDE="$REPO_DIR" COMPOSE_FILE="$REPO_DIR/deploy/docker-compose.local-first.yml" ENABLE_HINDSIGHT=false bash "$INST_DIR/build" "$sha"
+}
+
+run_deploy() {
+  local sha="$1"
+  validate_sha "$sha"
+  validate_security_policy
+  ensure_clean_checkout
+  ensure_target_matches_checkout "$sha"
+  ensure_source_approved "$sha"
+  load_lib
+  REPO_ROOT_OVERRIDE="$REPO_DIR" COMPOSE_FILE="$REPO_DIR/deploy/docker-compose.local-first.yml" ENABLE_HINDSIGHT=false bash "$INST_DIR/deploy" "$sha"
+}
+
+run_rollback() {
+  validate_security_policy
+  ensure_clean_checkout
+  load_lib
+  REPO_ROOT_OVERRIDE="$REPO_DIR" COMPOSE_FILE="$REPO_DIR/deploy/docker-compose.local-first.yml" ENABLE_HINDSIGHT=false bash "$INST_DIR/rollback"
+}
+
+run_status_locked() { setup_operation_log status; summary_audit status '' 'read-only'; run_status; }
+run_build_locked() { summary_audit build "$1" 'build requested'; run_build "$1"; }
+run_deploy_locked() { summary_audit deploy "$1" 'deploy requested'; run_deploy "$1"; }
+run_smoke_locked() { summary_audit smoke '' 'smoke requested'; run_smoke; }
+run_rollback_locked() { summary_audit rollback '' 'rollback requested'; run_rollback; }
+
+main() {
+  require_root
+  ensure_layout
+
+  local command_input action
+  command_input="${SSH_ORIGINAL_COMMAND:-${*:-}}"
+  [ -n "$command_input" ] || die "$EXIT_USAGE" 'missing command'
+
+  IFS=' ' read -r -a argv <<< "$command_input"
+  action="${argv[0]:-}"
+  case "$action" in
+    status)
+      [ "${#argv[@]}" -eq 1 ] || die "$EXIT_USAGE" 'status takes no args'
+      run_status_locked
+      ;;
+    build)
+      [ "${#argv[@]}" -eq 2 ] || die "$EXIT_USAGE" 'build requires <sha>'
+      validate_sha "${argv[1]}"
+      with_lock "$action" run_build_locked "${argv[1]}"
+      ;;
+    deploy)
+      [ "${#argv[@]}" -eq 2 ] || die "$EXIT_USAGE" 'deploy requires <sha>'
+      validate_sha "${argv[1]}"
+      with_lock "$action" run_deploy_locked "${argv[1]}"
+      ;;
+    smoke)
+      [ "${#argv[@]}" -eq 1 ] || die "$EXIT_USAGE" 'smoke takes no args'
+      with_lock "$action" run_smoke_locked
+      ;;
+    rollback)
+      [ "${#argv[@]}" -eq 1 ] || die "$EXIT_USAGE" 'rollback takes no args'
+      with_lock "$action" run_rollback_locked
+      ;;
+    *)
+      die "$EXIT_USAGE" "unsupported command: ${action:-<empty>}"
+      ;;
+  esac
+}
+
+main "$@"

@@ -1,0 +1,9 @@
+# Install this line in /home/<deploy-user>/.ssh/authorized_keys
+# The deploy user should be locked down (prefer /usr/sbin/nologin or /usr/bin/git-shell) and NOT granted a normal shell.
+# No sudoers entry for mutable repo scripts is required or desired.
+# The forced command is the only allowed entrypoint.
+#
+# If the SSH account is NOT root, pair this with a narrow sudoers rule that
+# permits only /usr/local/sbin/hermes-webui-control and nothing else.
+
+command="/usr/local/sbin/hermes-webui-control",restrict,no-agent-forwarding,no-port-forwarding,no-pty,no-user-rc,no-X11-forwarding ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFILL_THIS_WITH_THE_DEPLOY_KEY_COMMENT hermes-webui-deploy

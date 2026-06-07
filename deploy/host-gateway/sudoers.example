@@ -1,0 +1,10 @@
+# /etc/sudoers.d/hermes-webui-control
+#
+# Preferred variant: keep the SSH account without a normal shell, and allow
+# ONLY the root-owned wrapper to run via sudo.
+#
+# Do NOT add the user to the docker group unless you are accepting a
+# root-equivalent capability.
+
+Defaults:hermes-webui-deploy !requiretty
+hermes-webui-deploy ALL=(root) NOPASSWD: /usr/local/sbin/hermes-webui-control
