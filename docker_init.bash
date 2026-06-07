@@ -447,8 +447,12 @@ else
       rm -rf "$_stage_src"/*.egg-info "$_stage_src"/build "$_stage_src"/dist 2>/dev/null || true
       find "$_stage_src" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
     fi
-    uv pip install "$_stage_src[all]" --trusted-host pypi.org --trusted-host files.pythonhosted.org \
-      || error_exit "Failed to install hermes-agent's requirements"
+    # Install the hermes-agent base project without extras. The core project
+    # dependencies already cover the runtime imports WebUI needs for agent
+    # integration (dotenv, requests, httpx, run_agent, hermes_cli), while
+    # opt-in extras like `[all]` stay out of the startup path.
+    uv pip install "$_stage_src" --trusted-host pypi.org --trusted-host files.pythonhosted.org \
+      || error_exit "Failed to install hermes-agent's base project dependencies"
     rm -rf "$_stage_src"
   else
     echo ""
