@@ -56,6 +56,10 @@ check_immutable() {
   [ "$owner_group" = "$expect_user:$expect_group" ] || die "$EXIT_POLICY" "unexpected owner for $path: $owner_group (expected root:root)"
 }
 
+# Regression guard: stat -c '%a' returns plain modes like 644/755, not 0644/0755.
+# Keep the installed-file checks aligned with that output format.
+
+
 load_lib() {
   # shellcheck disable=SC1090
   source "$INST_DIR/lib.sh"
@@ -135,12 +139,12 @@ ensure_source_approved() {
 }
 
 validate_installed_tree() {
-  check_immutable "$INST_DIR/lib.sh" 0644
-  check_immutable "$INST_DIR/build" 0755
-  check_immutable "$INST_DIR/deploy" 0755
-  check_immutable "$INST_DIR/rollback" 0755
-  check_immutable "$INST_DIR/smoke" 0755
-  check_immutable "$INST_DIR/status" 0755
+  check_immutable "$INST_DIR/lib.sh" 644
+  check_immutable "$INST_DIR/build" 755
+  check_immutable "$INST_DIR/deploy" 755
+  check_immutable "$INST_DIR/rollback" 755
+  check_immutable "$INST_DIR/smoke" 755
+  check_immutable "$INST_DIR/status" 755
 }
 
 validate_security_policy() {
