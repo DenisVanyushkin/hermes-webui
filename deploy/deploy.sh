@@ -41,9 +41,9 @@ HERMES_WEBUI_IMAGE="$image_prod" \
 HERMES_WEBUI_GIT_SHA="$sha" \
 docker compose -f "$(compose_file_path)" up -d --no-build
 
-if ! "$SCRIPT_DIR/smoke.sh" "$sha"; then
+if ! bash "$SCRIPT_DIR/smoke.sh" "$sha"; then
   log "smoke failed; rolling back"
-  "$SCRIPT_DIR/rollback.sh" "$current_before" "$previous_before"
+  bash "$SCRIPT_DIR/rollback.sh" "$current_before" "$previous_before"
   die "deploy smoke failed, rollback attempted"
 fi
 

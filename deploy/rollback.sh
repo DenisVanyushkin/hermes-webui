@@ -25,5 +25,5 @@ ENABLE_HINDSIGHT="${ENABLE_HINDSIGHT:-false}" \
 HERMES_WEBUI_IMAGE="$image_prod" \
 docker compose -f "$(compose_file_path)" up -d --no-build
 
-"$SCRIPT_DIR/smoke.sh" "$previous_before"
+bash "$SCRIPT_DIR/smoke.sh" "$previous_before"
 log "rollback complete"

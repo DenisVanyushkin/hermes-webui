@@ -19,8 +19,19 @@ curl -fsS "http://127.0.0.1:${port}/health" >/dev/null
 
 logs="$(docker logs "$container_id" --tail 200 2>/dev/null || true)"
 if ! is_true "${ENABLE_HINDSIGHT:-false}"; then
-  if printf '%s\n' "$logs" | grep -qi 'hindsight-client'; then
-    die "startup logs mention hindsight-client while ENABLE_HINDSIGHT=false"
+  if printf '%s\n' "$logs" | grep -Fqi 'hindsight-client'; then
+    while IFS= read -r bad_signal; do
+      [ -n "$bad_signal" ] || continue
+      if printf '%s\n' "$logs" | grep -Fq "$bad_signal"; then
+        die "startup logs show an actual hindsight install/policy failure: $bad_signal"
+      fi
+    done <<'EOF'
+ENABLE_HINDSIGHT=true; installing
+Failed to install hindsight-client
+ENABLE_HINDSIGHT=false but hindsight-client is already installed
+hindsight-client unexpectedly installed
+ENABLE_HINDSIGHT=true requires hindsight-client==0.7.2
+EOF
   fi
   docker exec "$container_id" python - <<'PY'
 import importlib.metadata as metadata
