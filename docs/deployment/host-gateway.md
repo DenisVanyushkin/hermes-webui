@@ -200,3 +200,7 @@ This blueprint does **not** install the wrapper, create the SSH key, or change
 service accounts.
 Those steps are intentionally deferred until you explicitly ask to enable
 access on the real host.
+
+For a concrete step-by-step runbook, see:
+
+- `docs/deployment/host-bootstrap-checklist.md`
